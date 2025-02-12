@@ -18,5 +18,12 @@
   "bugs": {
     "url": "https://github.com/Tsurematsu/API-webRTC/issues"
   },
-  "homepage": "https://github.com/Tsurematsu/API-webRTC#readme"
+  "homepage": "https://github.com/Tsurematsu/API-webRTC#readme",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "node-turn": "^0.0.6",
+    "ws": "^8.18.0"
+  }
 }

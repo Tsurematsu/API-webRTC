@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RTC Demo</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'">
+
+
+</head>
+<body>
+  <input id="to" placeholder="ID">
+  <input id="msg" placeholder="Msg">
+  <button id="send">Send</button>
+  <ul id="log"></ul>
+  <script>
+    class Cl {
+      constructor() {
+        this.id = this.gId()
+        this.ws = new WebSocket(`ws://${location.host}?id=${this.id}`)
+        this.ws.onmessage = e => this.hMsg(JSON.parse(e.data))
+        this.lg('Con:' + this.id)
+      }
+      gId(){ return Math.random().toString(36).substr(2,9) }
+      hMsg(m){ this.lg('De ' + m.from + ': ' + m.m) }
+      snd(t,m){ this.ws.send(JSON.stringify({to:t,m:m})) }
+      lg(t){ let li = document.createElement('li'); li.textContent = t; document.getElementById('log').appendChild(li) }
+    }
+    const cl = new Cl()
+    document.getElementById('send').onclick = () => {
+      let t = document.getElementById('to').value, m = document.getElementById('msg').value
+      cl.snd(t,m)
+      cl.lg('En a ' + t + ': ' + m)
+    }
+  </script>
+</body>
+</html>
