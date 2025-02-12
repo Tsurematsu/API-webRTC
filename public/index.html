@@ -1,36 +1,66 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>RTC Demo</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'">
-
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Salas</title>
 </head>
 <body>
-  <input id="to" placeholder="ID">
-  <input id="msg" placeholder="Msg">
-  <button id="send">Send</button>
-  <ul id="log"></ul>
-  <script>
-    class Cl {
-      constructor() {
-        this.id = this.gId()
-        this.ws = new WebSocket(`ws://${location.host}?id=${this.id}`)
-        this.ws.onmessage = e => this.hMsg(JSON.parse(e.data))
-        this.lg('Con:' + this.id)
-      }
-      gId(){ return Math.random().toString(36).substr(2,9) }
-      hMsg(m){ this.lg('De ' + m.from + ': ' + m.m) }
-      snd(t,m){ this.ws.send(JSON.stringify({to:t,m:m})) }
-      lg(t){ let li = document.createElement('li'); li.textContent = t; document.getElementById('log').appendChild(li) }
-    }
-    const cl = new Cl()
-    document.getElementById('send').onclick = () => {
-      let t = document.getElementById('to').value, m = document.getElementById('msg').value
-      cl.snd(t,m)
-      cl.lg('En a ' + t + ': ' + m)
-    }
-  </script>
+    <h2>WebRTC Salas</h2>
+    <input id="roomInput" type="text" placeholder="ID de sala">
+    <button id="joinBtn">Unirse</button>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+
+    <script>
+        const ws = new WebSocket('ws://localhost:3000')
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        })
+
+        let room = ''
+        let localStream
+
+        document.getElementById('joinBtn').onclick = async () => {
+            room = document.getElementById('roomInput').value
+            if (!room) return alert('Ingresa un ID de sala')
+            ws.send(JSON.stringify({ type: 'join', room }))
+
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            document.getElementById('localVideo').srcObject = localStream
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream))
+
+            pc.onicecandidate = e => {
+                if (e.candidate) ws.send(JSON.stringify({ type: 'signal', signal: { candidate: e.candidate } }))
+            }
+
+            pc.ontrack = e => {
+                document.getElementById('remoteVideo').srcObject = e.streams[0]
+            }
+        }
+
+        ws.onmessage = async (event) => {
+            let msg = JSON.parse(event.data)
+
+            if (msg.type === 'user-joined' && msg.userId !== ws) {
+                let offer = await pc.createOffer()
+                await pc.setLocalDescription(offer)
+                ws.send(JSON.stringify({ type: 'signal', signal: { offer } }))
+            }
+
+            if (msg.type === 'signal' && msg.signal) {
+                if (msg.signal.offer) {
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.signal.offer))
+                    let answer = await pc.createAnswer()
+                    await pc.setLocalDescription(answer)
+                    ws.send(JSON.stringify({ type: 'signal', signal: { answer } }))
+                } else if (msg.signal.answer) {
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.signal.answer))
+                } else if (msg.signal.candidate) {
+                    await pc.addIceCandidate(new RTCIceCandidate(msg.signal.candidate))
+                }
+            }
+        }
+    </script>
 </body>
 </html>

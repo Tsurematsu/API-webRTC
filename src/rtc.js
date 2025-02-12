@@ -5,6 +5,52 @@ import { createServer } from 'http'
 import { WebSocketServer } from 'ws'
 import Turn from 'node-turn'
 import dgram from 'dgram'
+class RoomManager {
+    constructor() {
+      this.rooms = new Map()       // roomName -> Set(userIds)
+      this.userRooms = new Map()   // userId -> Set(roomNames)
+    }
+  
+    join(room, userId) {
+      if (!this.rooms.has(room)) {
+        this.rooms.set(room, new Set())
+      }
+      this.rooms.get(room).add(userId)
+  
+      if (!this.userRooms.has(userId)) {
+        this.userRooms.set(userId, new Set())
+      }
+      this.userRooms.get(userId).add(room)
+    }
+  
+    leave(room, userId) {
+      if (this.rooms.has(room)) {
+        this.rooms.get(room).delete(userId)
+        if (this.rooms.get(room).size === 0) {
+          this.rooms.delete(room)
+        }
+      }
+  
+      if (this.userRooms.has(userId)) {
+        this.userRooms.get(userId).delete(room)
+        if (this.userRooms.get(userId).size === 0) {
+          this.userRooms.delete(userId)
+        }
+      }
+    }
+  
+    leaveAll(userId) {
+      if (this.userRooms.has(userId)) {
+        this.userRooms.get(userId).forEach(room => {
+          this.leave(room, userId)
+        })
+      }
+    }
+  
+    getUsers(room) {
+      return this.rooms.get(room) || new Set()
+    }
+  }
 class PM {
   constructor() {
     this.m = new Map()
@@ -21,28 +67,77 @@ class PM {
 }
 
 class SS {
-  constructor(srv, pm) {
-    this.ws = new WebSocketServer({ server: srv })
-    this.pm = pm
-    this.init()
+    constructor(srv, pm, rm) {  // Añade RoomManager
+      this.ws = new WebSocketServer({ server: srv })
+      this.pm = pm
+      this.rm = rm  // RoomManager
+      this.init()
+    }
+  
+    init() {
+      this.ws.on('connection', (ws, req) => {
+        let id = new URL(req.url, `http://${req.headers.host}`).searchParams.get('id')
+        if (!id) return ws.close()
+        
+        this.pm.add(id, ws)
+        ws.on('message', d => this.hMsg(id, d))
+        ws.on('close', () => {
+          this.pm.rem(id)
+          this.rm.leaveAll(id)  // Limpiar salas al desconectar
+        })
+      })
+    }
+  
+    hMsg(fr, d) {
+      try {
+        let msg = JSON.parse(d)
+        
+        // Manejar mensajes de sala
+        if (msg.type === 'join-room') {
+          this.rm.join(msg.room, fr)
+          this.notifyRoomMembers(msg.room, fr)
+        } 
+        else if (msg.type === 'leave-room') {
+          this.rm.leave(msg.room, fr)
+        }
+        else if (msg.type === 'room-message') {
+          this.broadcastToRoom(msg.room, fr, msg.data)
+        }
+        // Mensaje directo existente
+        else if (msg.to) {
+          let to = this.pm.get(msg.to)
+          if (to) to.send(JSON.stringify({ ...msg, from: fr }))
+        }
+      } catch (e) {}
+    }
+  
+    broadcastToRoom(room, from, data) {
+      this.rm.getUsers(room).forEach(userId => {
+        if (userId !== from) {
+          const ws = this.pm.get(userId)
+          if (ws) ws.send(JSON.stringify({
+            type: 'room-message',
+            room,
+            data,
+            from
+          }))
+        }
+      })
+    }
+  
+    notifyRoomMembers(room, newUser) {
+      this.rm.getUsers(room).forEach(userId => {
+        if (userId !== newUser) {
+          const ws = this.pm.get(userId)
+          if (ws) ws.send(JSON.stringify({
+            type: 'user-joined',
+            room,
+            user: newUser
+          }))
+        }
+      })
+    }
   }
-  init() {
-    this.ws.on('connection', (ws, req) => {
-      let id = new URL(req.url, `http://${req.headers.host}`).searchParams.get('id')
-      if (!id) return ws.close()
-      this.pm.add(id, ws)
-      ws.on('message', d => this.hMsg(id, d))
-      ws.on('close', () => this.pm.rem(id))
-    })
-  }
-  hMsg(fr, d) {
-    try {
-      let msg = JSON.parse(d)
-      let to = this.pm.get(msg.to)
-      if (to) to.send(JSON.stringify({ ...msg, from: fr }))
-    } catch (e) {}
-  }
-}
 
 class TS {
   constructor(cfg) {
@@ -91,18 +186,19 @@ class STS {
 
 class RTCLib {
     constructor(p) {
-      this.p = Number(p) ? Number(p) : 0
-      this.ex = express()
-      this.srv = createServer(this.ex)
-      this.pm = new PM()
-      this.ss = new SS(this.srv, this.pm)
-      this.ts = new TS({
-        authMech: 'long-term',
-        credentials: { usr: 'pwd' },
-        listeningPort: p
-      })
-      this.sts = new STS(p)
-    }
+        this.p = Number(p) ? Number(p) : 0
+        this.ex = express()
+        this.srv = createServer(this.ex)
+        this.pm = new PM()
+        this.rm = new RoomManager()  // <-- Añade esto
+        this.ss = new SS(this.srv, this.pm, this.rm)  // Pasa RoomManager
+        this.ts = new TS({
+          authMech: 'long-term',
+          credentials: { usr: 'pwd' },
+          listeningPort: p
+        })
+        this.sts = new STS(p)
+      }
   
     start(p) {
       this.ex.use(cors())
