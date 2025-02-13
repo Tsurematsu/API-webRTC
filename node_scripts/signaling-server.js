@@ -4,8 +4,7 @@
 import  pushLogs from './pushLogs.js';
 // const strings
 import CONST_STRINGS from './const_strings.js';
-
-let isAdminAuthorized = require('./verify-admin.js');
+import isAdminAuthorized from './verify-admin.js';
 let listOfUsers = {};
 let listOfRooms = {};
 

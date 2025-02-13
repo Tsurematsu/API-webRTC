@@ -3,7 +3,8 @@
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
 
 // /admin/ page
-module.exports = exports = function(params, config) {
+function isAdminAuthorized(params, config) {
     if(!params || !params.adminUserName || !params.adminPassword) return false;
     return params.adminUserName === config.adminUserName && params.adminPassword === config.adminPassword;
 };
+export default isAdminAuthorized

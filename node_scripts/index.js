@@ -12,9 +12,9 @@ import resolveURL from './resolveURL.js';
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
 
-
-export {
+const modules = {
     addSocket, afterHttpListen, BASH_COLORS_HELPER, beforeHttpListen, getBashParameters,
     getJsonFile, getValuesFromConfigJson, pushLogs, resolveURL
 };
 
+export default modules
