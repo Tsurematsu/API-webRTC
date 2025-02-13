@@ -1,15 +1,20 @@
+import BASH_COLORS_HELPER from './BASH_COLORS_HELPER.js';
+import addSocket from './Signaling-Server.js';
+import afterHttpListen from './after-http-listen.js';
+import beforeHttpListen from './before-http-listen.js';
+import getBashParameters from './get-bash-parameters.js';
+import getValuesFromConfigJson from './get-values-from-config-json.js';
+import getJsonFile from './getJsonFile.js';
+import pushLogs from './pushLogs.js';
+import resolveURL from './resolveURL.js';
+
 // Muaz Khan      - www.MuazKhan.com
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
 
-module.exports = {
-    resolveURL: require('./resolveURL.js'),
-    BASH_COLORS_HELPER: require('./BASH_COLORS_HELPER.js'),
-    getValuesFromConfigJson: require('./get-values-from-config-json.js'),
-    getBashParameters: require('./get-bash-parameters.js'),
-    getJsonFile: require('./getJsonFile.js'),
-    pushLogs: require('./pushLogs.js'),
-    beforeHttpListen: require('./before-http-listen.js'),
-    afterHttpListen: require('./after-http-listen.js'),
-    addSocket: require('./Signaling-Server.js')
+
+export {
+    addSocket, afterHttpListen, BASH_COLORS_HELPER, beforeHttpListen, getBashParameters,
+    getJsonFile, getValuesFromConfigJson, pushLogs, resolveURL
 };
+
