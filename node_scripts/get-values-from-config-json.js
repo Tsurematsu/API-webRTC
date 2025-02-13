@@ -1,11 +1,17 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
 import fs from 'fs';
 import path from 'path';
 import getJsonFile from './getJsonFile.js';
-function getValues(param) {
 
+function ensureDirectoryExistence(filePath) {
+    const dirname = path.dirname(filePath);
+    if (fs.existsSync(dirname)) {
+        return true;
+    }
+    ensureDirectoryExistence(dirname);
+    fs.mkdirSync(dirname);
+}
+
+function getValues(param) {
     var result = {
         socketURL: '/',
         dirPath: null,
@@ -24,9 +30,10 @@ function getValues(param) {
         adminPassword: null
     };
 
-
     if (!fs.existsSync(param.config)) {
-        console.log('File does not exist', param.config);
+        console.log('File does not exist, creating it...', param.config);
+        ensureDirectoryExistence(param.config);
+        fs.writeFileSync(param.config, JSON.stringify(result, null, 4));
         return result;
     }
 
@@ -103,4 +110,4 @@ function getValues(param) {
     return result;
 }
 
-export default getValues
+export default getValues;

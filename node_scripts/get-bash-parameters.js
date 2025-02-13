@@ -169,7 +169,7 @@ function getBashParameters(config, BASH_COLORS_HELPER) {
             console.log(BASH_COLORS_HELPER.getYellowFG(), '--adminPassword=password');
             console.log('\t/admin/ page\'s password.');
             console.log('------------------------------');
-            console.log('Need more help? bit.ly/2ff7QGk');
+            console.log('Need more help?');
             process.exit(1);
         }
     });
