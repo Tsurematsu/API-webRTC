@@ -1,4 +1,4 @@
-import BASH_COLORS_HELPER from './BASH_COLORS_HELPER.js';
+import BASH_COLORS_HELPER from './bash_colors_helper.js';
 import addSocket from './Signaling-Server.js';
 import afterHttpListen from './after-http-listen.js';
 import beforeHttpListen from './before-http-listen.js';

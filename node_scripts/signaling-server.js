@@ -1,7 +1,7 @@
 // Muaz Khan      - www.MuazKhan.com
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
-import { pushLogs } from './pushLogs.js';
+import  pushLogs from './pushLogs.js';
 // const strings
 import CONST_STRINGS from './const_strings.js';
 

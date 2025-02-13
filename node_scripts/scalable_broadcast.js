@@ -3,7 +3,7 @@
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
 
 // pushLogs is used to write error logs into logs.json
-import { pushLogs } from './pushLogs.js';
+import pushLogs  from './pushLogs.js';
 
 let users = {};
 

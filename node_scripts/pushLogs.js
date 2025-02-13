@@ -62,4 +62,4 @@ function pushLogs(config, name, error, clearLogsCallback) {
     }
 }
 
-export {pushLogs} 
+export default pushLogs
