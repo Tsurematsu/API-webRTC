@@ -1,49 +1,64 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
-
-// pushLogs is used to write error logs into logs.json
-import  pushLogs from './pushLogs.js';
-import  BASH_COLORS_HELPER  from './bash_colors_helper.js';
+import pushLogs from './pushLogs.js';
+import BASH_COLORS_HELPER from './bash_colors_helper.js';
 
 function after_http_listen(httpServer, config) {
+    // Validación de parámetros
+    if (!httpServer || !config) {
+        console.error('httpServer or config is missing.');
+        return;
+    }
+
     try {
-        let addr = httpServer.address();
+        const addr = httpServer.address();
+        const host = addr.address === '0.0.0.0' ? 'localhost' : addr.address;
+        const protocol = config.isUseHTTPs ? 'https' : 'http';
+        const domainURL = `${protocol}://${host}:${addr.port}/`;
 
-        if (addr.address === '0.0.0.0') {
-            addr.address = 'localhost';
-        }
+        // Constantes para colores
+        const green = BASH_COLORS_HELPER.getGreenFG();
+        const yellow = BASH_COLORS_HELPER.getYellowFG();
+        const redBG = BASH_COLORS_HELPER.getRedBG();
 
-        let domainURL = (config.isUseHTTPs ? 'https' : 'http') + '://' + addr.address + ':' + addr.port + '/';
+        // Función para imprimir mensajes con formato
+        const printMessage = (color, message) => console.log(color, message);
 
         console.log('\n');
 
-        console.log('Socket.io is listening at:');
-        console.log(BASH_COLORS_HELPER.getGreenFG(), '\t' + domainURL);
+        // Mensaje de URL del servidor
+        printMessage(green, 'Socket.io is listening at:');
+        printMessage(green, `\t${domainURL}`);
 
+        // Mensaje sobre el uso de HTTPS
         if (!config.isUseHTTPs) {
             console.log('You can use --ssl to enable HTTPs:');
-            console.log(BASH_COLORS_HELPER.getYellowFG(), '\t' + 'node server --ssl');
+            printMessage(yellow, '\tnode server --ssl');
         }
 
+        // Mensaje para configurar el socketURL en el cliente
         console.log('Your web-browser (HTML file) MUST set this line:');
-        console.log(BASH_COLORS_HELPER.getGreenFG(), '\tconnection.socketURL = "' + domainURL + '";');
+        printMessage(green, `\tconnection.socketURL = "${domainURL}";`);
 
-        if (addr.address != 'localhost' && !config.isUseHTTPs) {
-            console.log(BASH_COLORS_HELPER.getRedBG(), 'Warning:');
-            console.log(BASH_COLORS_HELPER.getRedBG(), 'Please run on HTTPs to make sure audio,video and screen demos can work on Google Chrome as well.');
+        // Advertencia sobre el uso de HTTPs en Chrome
+        if (host !== 'localhost' && !config.isUseHTTPs) {
+            printMessage(redBG, 'Warning:');
+            printMessage(redBG, 'Please run on HTTPs to make sure audio, video, and screen demos can work on Google Chrome as well.');
         }
 
+        // Mensaje sobre la página de administración
         if (config.enableAdmin === true) {
-            console.log('Admin page is enabled and running on: ' + domainURL + 'admin/');
-            console.log('\tAdmin page username: ' + config.adminUserName);
-            console.log('\tAdmin page password: ' + config.adminPassword);
+            console.log(`Admin page is enabled and running on: ${domainURL}admin/`);
+            console.log(`\tAdmin page username: ${config.adminUserName}`);
+            console.log(`\tAdmin page password: ${config.adminPassword}`);
         }
 
-        console.log('For more help: ', BASH_COLORS_HELPER.getYellowFG('node server.js --help'));
+        // Mensaje de ayuda
+        console.log('For more help: ', yellow('node server.js --help'));
         console.log('\n');
+
     } catch (e) {
-        pushLogs(config, 'app.listen.callback', e);
+        // Manejo de errores
+        pushLogs(config, 'after_http_listen', e);
     }
-};
-export default after_http_listen
+}
+
+export default after_http_listen;

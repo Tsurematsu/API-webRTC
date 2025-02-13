@@ -1,122 +1,38 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
+import path from 'path';
+import BASH_COLORS_HELPER from './bash_colors_helper.js';
 
-function getBashParameters(config, BASH_COLORS_HELPER) {
-    var argv_array = [];
-    process.argv.forEach(function(val, index, array) {
-        if (argv_array.length) return;
-        argv_array = array;
-    });
+// Función auxiliar para extraer valores de los parámetros
+function extractValue(val, prefix) {
+    const inner = val.split(`${prefix}=`)[1]?.split(' ')[0]?.trim();
+    return inner || null;
+}
 
-    argv_array.forEach(function(val) {
-        // node server.js --ssl
-        if (val === '--ssl') {
-            config.isUseHTTPs = true;
-        }
+// Función principal
+function getBashParameters(config) {
+    const argvArray = process.argv.slice(2); // Ignorar "node" y "server.js"
 
-        // node server.js --isUseHTTPs=true
-        if (val.indexOf('--isUseHTTPs') === 0) {
-            var inner = val.split('--isUseHTTPs=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.isUseHTTPs = inner === 'true';
-            }
-        }
-
-        // node server.js --autoRebootServerOnFailure=true
-        if (val.indexOf('--autoRebootServerOnFailure=true') === 0) {
-            config.autoRebootServerOnFailure = true;
-        }
-
-        // node server.js --port=9002
-        if (val.indexOf('--port') === 0) {
-            var inner = val.split('--port=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.port = inner;
-            }
-        }
-
-        // node server.js --dirPath=/var/www/html/
-        if (val.indexOf('--dirPath') === 0) {
-            var inner = val.split('--dirPath=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.dirPath = inner;
-            }
-        }
-
-        // node server.js --homePage=/demos/Video-Conferencing.html
-        if (val.indexOf('--homePage') === 0) {
-            var inner = val.split('--homePage=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.homePage = inner;
-            }
-        }
-
-        // node server.js --enableAdmin=true
-        if (val.indexOf('--enableAdmin=true') === 0) {
-            config.enableAdmin = true;
-        }
-
-        // node server.js --adminUserName=username
-        if (val.indexOf('--adminUserName') === 0) {
-            var inner = val.split('--adminUserName=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.adminUserName = inner;
-            }
-        }
-
-        // node server.js --adminPassword=password
-        if (val.indexOf('--adminPassword') === 0) {
-            var inner = val.split('--adminPassword=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.adminPassword = inner;
-            }
-        }
-
-        // node server.js --sslKey=/home/ssl/ssl.key
-        if (val.indexOf('--sslKey') === 0) {
-            var inner = val.split('--sslKey=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.sslKey = inner;
-            }
-        }
-
-        // node server.js --sslCert=/home/ssl/ssl.crt
-        if (val.indexOf('--sslCert') === 0) {
-            var inner = val.split('--sslCert=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.sslCert = inner;
-            }
-        }
-
-        // node server.js --sslCabundle=/home/ssl/ssl.cab
-        if (val.indexOf('--sslCabundle') === 0) {
-            var inner = val.split('--sslCabundle=')[1];
-            if (inner) {
-                inner = inner.split(' ')[0].trim();
-                config.sslCabundle = inner;
-            }
-        }
-
-        // node server.js --version
-        if (val === '--version') {
-            var json = require(path.join(__dirname, resolveURL('package.json')));
+    // Mapeo de parámetros y sus acciones correspondientes
+    const paramActions = {
+        '--ssl': () => { config.isUseHTTPs = true; },
+        '--isUseHTTPs': (val) => { config.isUseHTTPs = extractValue(val, '--isUseHTTPs') === 'true'; },
+        '--autoRebootServerOnFailure=true': () => { config.autoRebootServerOnFailure = true; },
+        '--port': (val) => { config.port = extractValue(val, '--port'); },
+        '--dirPath': (val) => { config.dirPath = extractValue(val, '--dirPath'); },
+        '--homePage': (val) => { config.homePage = extractValue(val, '--homePage'); },
+        '--enableAdmin=true': () => { config.enableAdmin = true; },
+        '--adminUserName': (val) => { config.adminUserName = extractValue(val, '--adminUserName'); },
+        '--adminPassword': (val) => { config.adminPassword = extractValue(val, '--adminPassword'); },
+        '--sslKey': (val) => { config.sslKey = extractValue(val, '--sslKey'); },
+        '--sslCert': (val) => { config.sslCert = extractValue(val, '--sslCert'); },
+        '--sslCabundle': (val) => { config.sslCabundle = extractValue(val, '--sslCabundle'); },
+        '--version': () => {
+            const json = require(path.join(__dirname, 'package.json'));
             console.log('\n');
-            console.log(BASH_COLORS_HELPER.getYellowFG(), '\t' + json.version);
+            console.log(BASH_COLORS_HELPER.getYellowFG(), `\t${json.version}`);
             process.exit(1);
-        }
-
-        // node server.js --dependencies
-        if (val === '--dependencies') {
-            var json = require(path.join(__dirname, resolveURL('package.json')));
+        },
+        '--dependencies': () => {
+            const json = require(path.join(__dirname, 'package.json'));
             console.log('\n');
             console.log(BASH_COLORS_HELPER.getYellowFG(), 'dependencies:');
             console.log(JSON.stringify(json.dependencies, null, '\t'));
@@ -124,10 +40,8 @@ function getBashParameters(config, BASH_COLORS_HELPER) {
             console.log(BASH_COLORS_HELPER.getYellowFG(), 'devDependencies:');
             console.log(JSON.stringify(json.devDependencies, null, '\t'));
             process.exit(1);
-        }
-
-        // node server.js --help
-        if (val === '--help') {
+        },
+        '--help': () => {
             console.log('\n');
             console.log('You can manage configuration in the "config.json" file.');
 
@@ -171,9 +85,18 @@ function getBashParameters(config, BASH_COLORS_HELPER) {
             console.log('------------------------------');
             console.log('Need more help?');
             process.exit(1);
+        },
+    };
+
+    // Procesar cada parámetro
+    argvArray.forEach((val) => {
+        const actionKey = Object.keys(paramActions).find((key) => val.startsWith(key));
+        if (actionKey) {
+            paramActions[actionKey](val);
         }
     });
 
     return config;
-};
-export default getBashParameters
+}
+
+export default getBashParameters;

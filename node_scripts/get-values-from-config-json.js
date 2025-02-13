@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import getJsonFile from './getJsonFile.js';
 
+// Función para asegurar que el directorio exista
 function ensureDirectoryExistence(filePath) {
     const dirname = path.dirname(filePath);
     if (fs.existsSync(dirname)) {
@@ -11,8 +12,18 @@ function ensureDirectoryExistence(filePath) {
     fs.mkdirSync(dirname);
 }
 
+// Función auxiliar para asignar valores desde config a result
+function assignValue(result, config, key, defaultValue = null) {
+    if (config[key] !== undefined && config[key] !== null && config[key] !== '') {
+        result[key] = config[key];
+    } else if (defaultValue !== null) {
+        result[key] = defaultValue;
+    }
+}
+
+// Función principal
 function getValues(param) {
-    var result = {
+    const result = {
         socketURL: '/',
         dirPath: null,
         homePage: '/demos/index.html',
@@ -27,9 +38,10 @@ function getValues(param) {
         sslCabundle: null,
         enableAdmin: false,
         adminUserName: null,
-        adminPassword: null
+        adminPassword: null,
     };
 
+    // Si el archivo de configuración no existe, crearlo con valores predeterminados
     if (!fs.existsSync(param.config)) {
         console.log('File does not exist, creating it...', param.config);
         ensureDirectoryExistence(param.config);
@@ -37,75 +49,29 @@ function getValues(param) {
         return result;
     }
 
-    var config = getJsonFile(param.config);
+    // Leer el archivo de configuración
+    const config = getJsonFile(param.config);
 
-    ['sslKey', 'sslCert', 'sslCabundle'].forEach(function(key) {
-        if (!config[key] || config[key].toString().length == 0) {
-            return;
-        }
+    // Asignar valores desde config a result
+    assignValue(result, config, 'port', '9001');
+    assignValue(result, config, 'autoRebootServerOnFailure', false);
+    assignValue(result, config, 'isUseHTTPs', null);
+    assignValue(result, config, 'enableLogs', false);
+    assignValue(result, config, 'socketURL', '/');
+    assignValue(result, config, 'dirPath', null);
+    assignValue(result, config, 'homePage', '/demos/index.html');
+    assignValue(result, config, 'socketMessageEvent', 'RTCMultiConnection-Message');
+    assignValue(result, config, 'socketCustomEvent', 'RTCMultiConnection-Custom-Message');
+    assignValue(result, config, 'enableAdmin', false);
+    assignValue(result, config, 'adminUserName', null);
+    assignValue(result, config, 'adminPassword', null);
 
-        if (config[key].indexOf('/path/to/') === -1) {
-            if (key === 'sslKey') {
-                result.sslKey = config['sslKey'];
-            }
-
-            if (key === 'sslCert') {
-                result.sslCert = config['sslCert'];
-            }
-
-            if (key === 'sslCabundle') {
-                result.sslCabundle = config['sslCabundle'];
-            }
+    // Manejar claves específicas para SSL
+    ['sslKey', 'sslCert', 'sslCabundle'].forEach((key) => {
+        if (config[key] && config[key].toString().length > 0 && !config[key].includes('/path/to/')) {
+            result[key] = config[key];
         }
     });
-
-    if ((config.port || '').toString() !== '9001') {
-        result.port = (config.port || '').toString();
-    }
-
-    if ((config.autoRebootServerOnFailure || '').toString() === 'true') {
-        result.autoRebootServerOnFailure = true;
-    }
-
-    if ((config.isUseHTTPs || '').toString() === 'true') {
-        result.isUseHTTPs = true;
-    }
-
-    if ((config.enableLogs || '').toString() === 'true') {
-        result.enableLogs = true;
-    }
-
-    if ((config.socketURL || '').toString().length) {
-        result.socketURL = (config.socketURL || '').toString();
-    }
-
-    if ((config.dirPath || '').toString().length) {
-        result.dirPath = (config.dirPath || '').toString();
-    }
-
-    if ((config.homePage || '').toString().length) {
-        result.homePage = (config.homePage || '').toString();
-    }
-
-    if ((config.socketMessageEvent || '').toString().length) {
-        result.socketMessageEvent = (config.socketMessageEvent || '').toString();
-    }
-
-    if ((config.socketCustomEvent || '').toString().length) {
-        result.socketCustomEvent = (config.socketCustomEvent || '').toString();
-    }
-
-    if ((config.enableAdmin || '').toString() === 'true') {
-        result.enableAdmin = true;
-    }
-
-    if ((config.adminUserName || '').toString().length) {
-        result.adminUserName = (config.adminUserName || '').toString();
-    }
-
-    if ((config.adminPassword || '').toString().length) {
-        result.adminPassword = (config.adminPassword || '').toString();
-    }
 
     return result;
 }

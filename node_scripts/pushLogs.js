@@ -1,65 +1,64 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid'; // Para generar IDs únicos
 import getJsonFile from './getJsonFile.js';
 
-function pushLogs(config, name, error, clearLogsCallback) {
-    // return console.log(error.message, error.stack);
-    if (!config.enableLogs) {
-        try {
-            console.log(name, error.message, error.stack);
-        }
-        catch(e) {}
+async function pushLogs(config, name, error, clearLogsCallback) {
+    // Validación básica de parámetros
+    if (!config || !config.logs) {
+        console.error('Config or logs path is missing.');
         return;
     }
 
-    if (!clearLogsCallback || typeof clearLogsCallback !== 'function') {
-        if (!name || !error || !error.message || !error.stack) {
-            console.log('Invalid pushLogs', name, error);
-            return;
-        }
+    // Si los logs están deshabilitados, solo imprimir en consola
+    if (!config.enableLogs) {
+        console.log(name, error?.message, error?.stack);
+        return;
+    }
+
+    // Validación del callback
+    if (clearLogsCallback && typeof clearLogsCallback !== 'function') {
+        console.error('clearLogsCallback is not a function.');
+        return;
     }
 
     try {
-        let utcDateString = (new Date).toISOString();
-        utcDateString += (Math.random() * 100).toString();
-        utcDateString = utcDateString.replace(/ |-|,|:|\./g, '');
+        // Leer el archivo de logs existente
+        let logs = getJsonFile(config.logs) || {};
 
-        let logs = getJsonFile(config.logs);
-
-        try {
-            if (!!clearLogsCallback && typeof clearLogsCallback === 'function') {
-                logs = {};
-            } else {
-                logs[utcDateString] = {
-                    name: name,
-                    message: error.message,
-                    stack: error.stack,
-                    date: (new Date).toUTCString()
-                };
-            }
-
-            fs.writeFileSync(config.logs, JSON.stringify(logs));
-
-            if (!!clearLogsCallback && typeof clearLogsCallback === 'function') {
-                clearLogsCallback(true);
-            }
-        } catch (e) {
-            // logs[utcDateString] = arguments.toString();
-            console.log('Unable to write to logs.json.', e);
-
-            if (!!clearLogsCallback && typeof clearLogsCallback === 'function') {
-                clearLogsCallback('Unable to write to logs.json.');
-            }
+        // Si se solicita limpiar los logs
+        if (clearLogsCallback) {
+            logs = {};
+            await fs.promises.writeFile(config.logs, JSON.stringify(logs));
+            clearLogsCallback(true);
+            return;
         }
-    } catch (e) {
-        console.log('Unable to write log.', e);
 
-        if (!!clearLogsCallback && typeof clearLogsCallback === 'function') {
+        // Validación de los parámetros de error
+        if (!name || !error || !error.message || !error.stack) {
+            console.error('Invalid pushLogs parameters:', name, error);
+            return;
+        }
+
+        // Crear una nueva entrada de log
+        const logId = uuidv4(); // ID único para el log
+        logs[logId] = {
+            name,
+            message: error.message,
+            stack: error.stack,
+            date: new Date().toUTCString(),
+        };
+
+        // Escribir los logs actualizados en el archivo
+        await fs.promises.writeFile(config.logs, JSON.stringify(logs, null, 4));
+
+    } catch (e) {
+        console.error('Unable to write log:', e);
+
+        // Notificar el error al callback si está definido
+        if (clearLogsCallback) {
             clearLogsCallback('Unable to write log.');
         }
     }
 }
 
-export default pushLogs
+export default pushLogs;
