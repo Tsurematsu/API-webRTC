@@ -1,9 +1,8 @@
 // Muaz Khan      - www.MuazKhan.com
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
-
-var fs = require('fs');
-var getJsonFile = require('./getJsonFile.js');
+import fs from 'fs';
+import getJsonFile from './getJsonFile.js';
 
 function pushLogs(config, name, error, clearLogsCallback) {
     // return console.log(error.message, error.stack);
@@ -23,11 +22,11 @@ function pushLogs(config, name, error, clearLogsCallback) {
     }
 
     try {
-        var utcDateString = (new Date).toISOString();
+        let utcDateString = (new Date).toISOString();
         utcDateString += (Math.random() * 100).toString();
         utcDateString = utcDateString.replace(/ |-|,|:|\./g, '');
 
-        var logs = getJsonFile(config.logs);
+        let logs = getJsonFile(config.logs);
 
         try {
             if (!!clearLogsCallback && typeof clearLogsCallback === 'function') {
@@ -63,4 +62,4 @@ function pushLogs(config, name, error, clearLogsCallback) {
     }
 }
 
-module.exports = exports = pushLogs;
+export {pushLogs} 

@@ -1,8 +1,9 @@
+import fs from 'fs';
+
 function getJsonFile(path) {
-    var fs = require('fs');
-    var output = {};
+    let output = {};
     try {
-        var json = fs.readFileSync(path);
+        let json = fs.readFileSync(path);
         output = JSON.parse(json);
     }
     catch(e) {
@@ -13,4 +14,4 @@ function getJsonFile(path) {
     return output;
 }
 
-module.exports = exports = getJsonFile;
+export default getJsonFile

@@ -1,11 +1,10 @@
 // Muaz Khan      - www.MuazKhan.com
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
-
+import fs from 'fs';
+import path from 'path';
+import getJsonFile from './getJsonFile.js';
 function getValues(param) {
-    var path = require('path');
-    var fs = require('fs');
-    var getJsonFile = require('./getJsonFile.js');
 
     var result = {
         socketURL: '/',
@@ -104,4 +103,4 @@ function getValues(param) {
     return result;
 }
 
-module.exports = exports = getValues;
+export default getValues

@@ -8,4 +8,4 @@ function resolveURL(url) {
     return url.replace(/\//g, '\\');
 }
 
-module.exports = exports = resolveURL;
+export default resolveURL
