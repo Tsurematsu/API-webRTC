@@ -38,7 +38,7 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
                 notifyBroadcasterAboutNumberOfViewers(user.broadcastId);
             }
 
-            var relayUser = getFirstAvailableBroadcaster(user.broadcastId, maxRelayLimitPerUser);
+            let relayUser = getFirstAvailableBroadcaster(user.broadcastId, maxRelayLimitPerUser);
 
             if (relayUser === 'ask-him-rejoin') {
                 socket.emit('rejoin-broadcast', user.broadcastId);
@@ -46,7 +46,7 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
             }
 
             if (relayUser && user.userid !== user.broadcastId) {
-                var hintsToJoinBroadcast = {
+                let hintsToJoinBroadcast = {
                     typeOfStreams: relayUser.typeOfStreams,
                     userid: relayUser.userid,
                     broadcastId: relayUser.broadcastId
@@ -117,9 +117,9 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
 
     function getNumberOfBroadcastViewers(broadcastId) {
         try {
-            var numberOfUsers = 0;
+            let numberOfUsers = 0;
             Object.keys(users).forEach(function(uid) {
-                var user = users[uid];
+                let user = users[uid];
                 if (user.broadcastId === broadcastId) {
                     numberOfUsers++;
                 }
@@ -133,7 +133,7 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
     function notifyBroadcasterAboutNumberOfViewers(broadcastId, userLeft) {
         try {
             if (!broadcastId || !users[broadcastId] || !users[broadcastId].socket) return;
-            var numberOfBroadcastViewers = getNumberOfBroadcastViewers(broadcastId);
+            let numberOfBroadcastViewers = getNumberOfBroadcastViewers(broadcastId);
 
             if (userLeft === true) {
                 numberOfBroadcastViewers--;
@@ -151,7 +151,7 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
         try {
             if (!socket.isScalableBroadcastSocket) return;
 
-            var user = users[socket.userid];
+            let user = users[socket.userid];
 
             if (!user) return;
 
@@ -161,8 +161,8 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
 
             if (user.isBroadcastInitiator === true) {
                 // need to stop entire broadcast?
-                for (var n in users) {
-                    var _user = users[n];
+                for (let n in users) {
+                    let _user = users[n];
 
                     if (_user.broadcastId === user.broadcastId) {
                         _user.socket.emit('broadcast-stopped', user.broadcastId);
@@ -174,10 +174,10 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
             }
 
             if (user.receivingFrom || user.isBroadcastInitiator === true) {
-                var parentUser = users[user.receivingFrom];
+                let parentUser = users[user.receivingFrom];
 
                 if (parentUser) {
-                    var newArray = [];
+                    let newArray = [];
                     parentUser.relayReceivers.forEach(function(n) {
                         if (n.userid !== user.userid) {
                             newArray.push(n);
@@ -200,13 +200,13 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
     return {
         getUsers: function() {
             try {
-                var list = [];
+                let list = [];
                 Object.keys(users).forEach(function(uid) {
-                    var user = users[uid];
+                    let user = users[uid];
                     if(!user) return;
                     
                     try {
-                        var relayReceivers = [];
+                        let relayReceivers = [];
                         user.relayReceivers.forEach(function(s) {
                             relayReceivers.push(s.userid);
                         });
@@ -237,7 +237,7 @@ function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
 
 function askNestedUsersToRejoin(relayReceivers) {
     try {
-        var usersToAskRejoin = [];
+        let usersToAskRejoin = [];
 
         relayReceivers.forEach(function(receiver) {
             if (!!users[receiver.userid]) {
@@ -254,7 +254,7 @@ function askNestedUsersToRejoin(relayReceivers) {
 
 function getFirstAvailableBroadcaster(broadcastId, maxRelayLimitPerUser) {
     try {
-        var broadcastInitiator = users[broadcastId];
+        let broadcastInitiator = users[broadcastId];
 
         // if initiator is capable to receive users
         if (broadcastInitiator && broadcastInitiator.relayReceivers.length < maxRelayLimitPerUser) {
@@ -263,7 +263,7 @@ function getFirstAvailableBroadcaster(broadcastId, maxRelayLimitPerUser) {
 
         // otherwise if initiator knows who is current relaying user
         if (broadcastInitiator && broadcastInitiator.lastRelayuserid) {
-            var lastRelayUser = users[broadcastInitiator.lastRelayuserid];
+            let lastRelayUser = users[broadcastInitiator.lastRelayuserid];
             if (lastRelayUser && lastRelayUser.relayReceivers.length < maxRelayLimitPerUser) {
                 return lastRelayUser;
             }
@@ -271,9 +271,9 @@ function getFirstAvailableBroadcaster(broadcastId, maxRelayLimitPerUser) {
 
         // otherwise, search for a user who not relayed anything yet
         // todo: why we're using "for-loop" here? it is not safe.
-        var userFound;
-        for (var n in users) {
-            var user = users[n];
+        let userFound;
+        for (let n in users) {
+            let user = users[n];
 
             if (userFound) {
                 continue;
