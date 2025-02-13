@@ -33,9 +33,7 @@ function serverHandler(request, response) {
     config = getBashParameters(config, BASH_COLORS_HELPER);
 
     response.writeHead(200, { 'Content-Type': 'text/plain' });
-    response.write('RTCMultiConnection Socket.io Server.\n\n' + 
-        'https://github.com/muaz-khan/RTCMultiConnection-Server\n\n' + 
-        'npm install RTCMultiConnection-Server'
+    response.write('RTCMultiConnection Socket.io Server.\n\n'
     );
     response.end();
 }
