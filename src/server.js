@@ -3,6 +3,7 @@ import path from 'path';
 import url from 'url';
 import http from 'http';
 import https from 'https';
+import cors from 'cors';    
 import { Server } from 'socket.io';
 import RTCMultiConnectionServer from '../node_scripts/index.js';
 
@@ -12,8 +13,8 @@ var isUseHTTPs = false;
 const jsonPath = {
     config: 'config.json',
     logs: 'logs.json'
-};
-
+};  
+    
 const BASH_COLORS_HELPER = RTCMultiConnectionServer.BASH_COLORS_HELPER;
 const getValuesFromConfigJson = RTCMultiConnectionServer.getValuesFromConfigJson;
 const getBashParameters = RTCMultiConnectionServer.getBashParameters;
@@ -32,11 +33,23 @@ function serverHandler(request, response) {
     config = getValuesFromConfigJson(jsonPath);
     config = getBashParameters(config, BASH_COLORS_HELPER);
 
+    // Configurar encabezados CORS
+    response.setHeader('Access-Control-Allow-Origin', '*'); // Permitir cualquier origen
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); // Métodos permitidos
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Encabezados permitidos
+
+    // Manejar preflight requests
+    if (request.method === 'OPTIONS') {
+        response.writeHead(204);
+        response.end();
+        return;
+    }
+
     response.writeHead(200, { 'Content-Type': 'text/plain' });
-    response.write('RTCMultiConnection Socket.io Server.\n\n'
-    );
+    response.write('RTCMultiConnection Socket.io Server.\n\n');
     response.end();
 }
+
 
 var httpServer = http;
 var httpApp;
@@ -86,7 +99,13 @@ httpApp.listen(PORT, "0.0.0.0", function() {
 });
 
 // Socket.io
-const ioServer = new Server(httpApp);
+const ioServer = new Server(httpApp, {
+    cors: {
+        origin: '*', // Permitir cualquier origen
+        methods: ['GET', 'POST']
+    }
+});
+
 ioServer.on('connection', function(socket) {
     RTCMultiConnectionServer.addSocket(socket, config);
 

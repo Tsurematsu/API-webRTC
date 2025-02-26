@@ -1,305 +1,326 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
+// Refactorización de RTCMultiConnection
+// Basado en el trabajo de Muaz Khan - www.MuazKhan.com
 
-// pushLogs is used to write error logs into logs.json
-import pushLogs  from './pushLogs.js';
+import pushLogs from './pushLogs.js';
 
-let users = {}; // Consider using a Map for potentially faster lookups and iteration in some cases, though objects are generally fine for this scale.
-
-function ScalableBroadcastHandler(config, socket, maxRelayLimitPerUser) {
-    try {
-        maxRelayLimitPerUser = parseInt(maxRelayLimitPerUser) || 2; // More robust parsing, consider Number() and isNaN check
-    } catch (e) {
-        maxRelayLimitPerUser = 2; // Default value already set, catch block might be redundant unless parsing logic becomes more complex
-    }
-
-    socket.on('join-broadcast', function(user) {
-        try {
-            if (!users[user.userid]) { // Check if user already exists to prevent overwriting existing user data.
-                socket.userid = user.userid;
-                socket.isScalableBroadcastSocket = true;
-
-                users[user.userid] = { // Consider using a class or factory function to create user objects for better structure and maintainability.
-                    userid: user.userid,
-                    broadcastId: user.broadcastId,
-                    isBroadcastInitiator: false,
-                    maxRelayLimitPerUser: maxRelayLimitPerUser,
-                    relayReceivers: [],
-                    receivingFrom: null,
-                    canRelay: false,
-                    typeOfStreams: user.typeOfStreams || { // Default value if typeOfStreams is not provided.
-                        audio: true,
-                        video: true
-                    },
-                    socket: socket
-                };
-
-                notifyBroadcasterAboutNumberOfViewers(user.broadcastId); // Move this call after finding relayUser for better flow.
-            } else {
-                // Handle case where user already exists, maybe reconnecting? Could log this or handle differently.
-                console.warn(`User ${user.userid} already exists in broadcast ${user.broadcastId}. Ignoring join request.`);
-                return; // Early return to prevent further processing for existing user.
-            }
-
-            let relayUser = getFirstAvailableBroadcaster(user.broadcastId, maxRelayLimitPerUser);
-
-            if (relayUser === 'ask-him-rejoin') {
-                socket.emit('rejoin-broadcast', user.broadcastId);
-                return;
-            }
-
-            if (relayUser && user.userid !== user.broadcastId) { // Check if relayUser is found and not the broadcaster joining as viewer.
-                let hintsToJoinBroadcast = {
-                    typeOfStreams: relayUser.typeOfStreams,
-                    userid: relayUser.userid,
-                    broadcastId: relayUser.broadcastId
-                };
-
-                users[user.userid].receivingFrom = relayUser.userid;
-                users[relayUser.userid].relayReceivers.push(
-                    users[user.userid]
-                );
-                users[user.broadcastId].lastRelayuserid = relayUser.userid; // Potentially redundant, lastRelayuserid might not be needed on broadcast initiator.
-
-                socket.emit('join-broadcaster', hintsToJoinBroadcast);
-
-                // logs for current socket
-                socket.emit('logs', `You <${user.userid}> are getting data/stream from <${relayUser.userid}>`); // Use template literals for better readability.
-
-                // logs for target relaying user
-                relayUser.socket.emit('logs', `You <${relayUser.userid}> are now relaying/forwarding data/stream to <${user.userid}>`); // Use template literals for better readability.
-            } else { // No relayUser found, user becomes broadcast initiator (or is the first viewer).
-                users[user.userid].isBroadcastInitiator = true;
-                socket.emit('start-broadcasting', users[user.userid].typeOfStreams);
-
-                // logs to tell he is now broadcast initiator
-                socket.emit('logs', `You <${user.userid}> are now serving the broadcast.`); // Use template literals for better readability.
-            }
-
-            notifyBroadcasterAboutNumberOfViewers(user.broadcastId); // Moved here to ensure viewer count is updated after successful join.
-        } catch (e) {
-            pushLogs(config, 'join-broadcast', e);
-        }
-    });
-
-    socket.on('scalable-broadcast-message', function(message) {
-        socket.broadcast.emit('scalable-broadcast-message', message); // Consider broadcasting to specific broadcastId only, not all connected sockets.
-    });
-
-    socket.on('can-relay-broadcast', function() {
-        if (users[socket.userid]) { // Check if user exists before accessing properties.
-            users[socket.userid].canRelay = true;
-        }
-    });
-
-    socket.on('can-not-relay-broadcast', function() {
-        if (users[socket.userid]) { // Check if user exists before accessing properties.
-            users[socket.userid].canRelay = false;
-        }
-    });
-
-    socket.on('check-broadcast-presence', function(userid, callback) {
-        // we can pass number of viewers as well
-        try {
-            callback(!!users[userid] && users[userid].isBroadcastInitiator === true); // Simplify condition, !! is redundant, just use Boolean(users[userid])
-        } catch (e) {
-            pushLogs(config, 'check-broadcast-presence', e);
-        }
-    });
-
-    socket.on('get-number-of-users-in-specific-broadcast', function(broadcastId, callback) {
-        try {
-            if (!broadcastId || !callback) return; // Early return for invalid input.
-
-            if (!users[broadcastId]) { // Check if broadcast exists before accessing properties.
-                callback(0);
-                return;
-            }
-
-            callback(getNumberOfBroadcastViewers(broadcastId));
-        } catch (e) {} // Consider logging this error even if just a generic message.
-    });
-
-    function getNumberOfBroadcastViewers(broadcastId) {
-        try {
-            let numberOfUsers = 0;
-            for (const uid in users) { // Use for...in for iterating over object keys. Consider for...of with Object.values(users) if you only need values.
-                const user = users[uid];
-                if (user.broadcastId === broadcastId) {
-                    numberOfUsers++;
-                }
-            }
-            return numberOfUsers - 1; // Subtract 1 to exclude the broadcaster itself from viewers count. Clarify in comments.
-        } catch (e) {
-            return 0; // Return 0 on error, consider logging for debugging.
-        }
-    }
-
-    function notifyBroadcasterAboutNumberOfViewers(broadcastId, userLeft) {
-        try {
-            if (!broadcastId || !users[broadcastId] || !users[broadcastId].socket) return; // Multiple checks for broadcast and socket existence.
-            let numberOfBroadcastViewers = getNumberOfBroadcastViewers(broadcastId);
-
-            if (userLeft === true) {
-                numberOfBroadcastViewers--;
-            }
-
-            users[broadcastId].socket.emit('number-of-broadcast-viewers-updated', {
-                numberOfBroadcastViewers: numberOfBroadcastViewers,
-                broadcastId: broadcastId
-            });
-        } catch (e) {} // Consider logging error.
-    }
-
-    // this even is called from "signaling-server.js"
-    socket.ondisconnect = function() {
-        try {
-            if (!socket.isScalableBroadcastSocket) return;
-
-            let user = users[socket.userid];
-
-            if (!user) return; // User might have disconnected before fully joining or if socket.userid is not set correctly.
-
-            if (user.isBroadcastInitiator === false) {
-                notifyBroadcasterAboutNumberOfViewers(user.broadcastId, true);
-            }
-
-            if (user.isBroadcastInitiator === true) {
-                // need to stop entire broadcast? Yes, when initiator disconnects, the broadcast should ideally stop.
-                for (const n in users) { // Use for...in for object keys.
-                    const _user = users[n];
-
-                    if (_user.broadcastId === user.broadcastId) {
-                        _user.socket.emit('broadcast-stopped', user.broadcastId);
-                    }
-                }
-
-                delete users[socket.userid]; // Remove initiator from users list.
-                return;
-            }
-
-            if (user.receivingFrom || user.isBroadcastInitiator === true) { // `|| user.isBroadcastInitiator === true` seems redundant here as initiators are handled above.
-                let parentUser = users[user.receivingFrom];
-
-                if (parentUser) {
-                    let newArray = [];
-                    for (const n of parentUser.relayReceivers) { // Use for...of for array iteration.
-                        if (n.userid !== user.userid) {
-                            newArray.push(n);
-                        }
-                    }
-                    users[user.receivingFrom].relayReceivers = newArray; // Update relayReceivers list after removing disconnected user.
-                }
-            }
-
-            if (user.relayReceivers.length && user.isBroadcastInitiator === false) { // Only ask nested users to rejoin if user was relaying and not initiator.
-                askNestedUsersToRejoin(user.relayReceivers);
-            }
-
-            delete users[socket.userid]; // Remove user from users list on disconnect.
-        } catch (e) {
-            pushLogs(config, 'scalable-broadcast-disconnect', e);
-        }
+// Clase para manejar usuarios individuales
+class User {
+  constructor(userData, socket, maxRelays) {
+    this.id = userData.userid;
+    this.broadcastId = userData.broadcastId;
+    this.isInitiator = false;
+    this.maxRelays = maxRelays;
+    this.receivers = [];
+    this.source = null;
+    this.canRelay = false;
+    this.streams = userData.typeOfStreams || { 
+      audio: true,
+      video: true 
     };
+    this.socket = socket;
+  }
+}
 
+// Clase principal para gestionar el sistema de broadcast
+class BroadcastManager {
+  constructor(config, maxRelays = 2) {
+    this.users = {};
+    this.config = config;
+    this.maxRelays = parseInt(maxRelays) || 2;
+  }
+
+  // Inicializar listeners para un socket
+  setupSocket(socket) {
+    socket.on('join-broadcast', (userData) => this.handleJoin(socket, userData));
+    socket.on('scalable-broadcast-message', (msg) => this.relayMessage(socket, msg));
+    socket.on('can-relay-broadcast', () => this.setRelayStatus(socket, true));
+    socket.on('can-not-relay-broadcast', () => this.setRelayStatus(socket, false));
+    socket.on('check-broadcast-presence', (userid, callback) => this.checkPresence(userid, callback));
+    socket.on('get-number-of-users-in-specific-broadcast', (broadcastId, callback) => 
+      this.getViewerCount(broadcastId, callback));
+    
+    // Manejar desconexión
+    socket.ondisconnect = () => this.handleDisconnect(socket);
+    
     return {
-        getUsers: function() {
-            try {
-                let list = [];
-                for (const uid in users) { // Use for...in for object keys.
-                    const user = users[uid];
-                    if(!user) continue; // Defensive check if user is somehow undefined.
-
-                    try {
-                        let relayReceivers = [];
-                        for (const s of user.relayReceivers) { // Use for...of for array iteration.
-                            relayReceivers.push(s.userid);
-                        }
-
-                        list.push({
-                            userid: user.userid,
-                            broadcastId: user.broadcastId,
-                            isBroadcastInitiator: user.isBroadcastInitiator,
-                            maxRelayLimitPerUser: user.maxRelayLimitPerUser,
-                            relayReceivers: relayReceivers,
-                            receivingFrom: user.receivingFrom,
-                            canRelay: user.canRelay,
-                            typeOfStreams: user.typeOfStreams
-                        });
-                    }
-                    catch(e) {
-                        pushLogs('getUsers', e); // Log error within getUsers function.
-                    }
-                }
-                return list;
-            }
-            catch(e) {
-                pushLogs('getUsers', e); // Log error in getUsers function wrapper.
-            }
-        }
+      getUsers: () => this.getUsersList()
     };
-};
+  }
 
-function askNestedUsersToRejoin(relayReceivers) {
+  // Agregar un usuario al broadcast
+  handleJoin(socket, userData) {
     try {
-        // let usersToAskRejoin = []; // Not used, can be removed.
+      if (this.users[userData.userid]) {
+        console.warn(`Usuario ${userData.userid} ya existe en broadcast ${userData.broadcastId}`);
+        return;
+      }
 
-        for (const receiver of relayReceivers) { // Use for...of for array iteration.
-            if (!!users[receiver.userid]) { // Check if user still exists before accessing properties.
-                users[receiver.userid].canRelay = false;
-                users[receiver.userid].receivingFrom = null;
-                receiver.socket.emit('rejoin-broadcast', receiver.broadcastId);
-            }
-
-        }
+      // Configurar socket
+      socket.userid = userData.userid;
+      socket.isScalableBroadcastSocket = true;
+      
+      // Crear nuevo usuario
+      this.users[userData.userid] = new User(userData, socket, this.maxRelays);
+      
+      // Buscar relayer disponible
+      const relayer = this.findAvailableRelayer(userData.broadcastId);
+      
+      if (relayer === 'ask-him-rejoin') {
+        socket.emit('rejoin-broadcast', userData.broadcastId);
+        return;
+      }
+      
+      if (relayer && userData.userid !== userData.broadcastId) {
+        // Conectar con el relayer
+        this.connectToRelayer(userData.userid, relayer);
+      } else {
+        // Iniciar nuevo broadcast
+        this.setupInitiator(userData.userid);
+      }
+      
+      // Notificar recuento de espectadores
+      this.notifyViewerCount(userData.broadcastId);
     } catch (e) {
-        pushLogs(config, 'askNestedUsersToRejoin', e);
+      pushLogs(this.config, 'join-broadcast', e);
     }
+  }
+  
+  // Conectar un usuario con un relayer
+  connectToRelayer(userId, relayer) {
+    const viewer = this.users[userId];
+    const joinInfo = {
+      typeOfStreams: relayer.streams,
+      userid: relayer.id,
+      broadcastId: relayer.broadcastId
+    };
+    
+    // Establecer relación entre viewer y relayer
+    viewer.source = relayer.id;
+    relayer.receivers.push(viewer);
+    
+    // Si hay un broadcast, registrar el último relayer usado
+    if (this.users[viewer.broadcastId]) {
+      this.users[viewer.broadcastId].lastRelayId = relayer.id;
+    }
+    
+    // Notificar a ambos
+    viewer.socket.emit('join-broadcaster', joinInfo);
+    viewer.socket.emit('logs', `Tú <${viewer.id}> estás recibiendo datos de <${relayer.id}>`);
+    relayer.socket.emit('logs', `Tú <${relayer.id}> estás retransmitiendo datos a <${viewer.id}>`);
+  }
+  
+  // Configurar un usuario como iniciador del broadcast
+  setupInitiator(userId) {
+    const user = this.users[userId];
+    user.isInitiator = true;
+    user.socket.emit('start-broadcasting', user.streams);
+    user.socket.emit('logs', `Tú <${user.id}> estás sirviendo el broadcast.`);
+  }
+  
+  // Relayar un mensaje a todos los sockets
+  relayMessage(socket, message) {
+    socket.broadcast.emit('scalable-broadcast-message', message);
+  }
+  
+  // Actualizar estado de relay
+  setRelayStatus(socket, status) {
+    if (this.users[socket.userid]) {
+      this.users[socket.userid].canRelay = status;
+    }
+  }
+  
+  // Verificar si un broadcast está activo
+  checkPresence(userid, callback) {
+    try {
+      callback(Boolean(this.users[userid]?.isInitiator));
+    } catch (e) {
+      pushLogs(this.config, 'check-broadcast-presence', e);
+    }
+  }
+  
+  // Obtener número de espectadores
+  getViewerCount(broadcastId, callback) {
+    try {
+      if (!broadcastId || !callback) return;
+      if (!this.users[broadcastId]) {
+        callback(0);
+        return;
+      }
+      
+      callback(this.countViewers(broadcastId));
+    } catch (e) {
+      callback(0);
+    }
+  }
+  
+  // Contar espectadores en un broadcast
+  countViewers(broadcastId) {
+    try {
+      let count = 0;
+      for (const id in this.users) {
+        if (this.users[id].broadcastId === broadcastId) {
+          count++;
+        }
+      }
+      // Restar 1 para excluir al emisor
+      return Math.max(0, count - 1);
+    } catch (e) {
+      return 0;
+    }
+  }
+  
+  // Notificar al iniciador sobre el número de espectadores
+  notifyViewerCount(broadcastId, userLeft = false) {
+    try {
+      const initiator = this.users[broadcastId];
+      if (!broadcastId || !initiator || !initiator.socket) return;
+      
+      let count = this.countViewers(broadcastId);
+      if (userLeft) count--;
+      
+      initiator.socket.emit('number-of-broadcast-viewers-updated', {
+        numberOfBroadcastViewers: count,
+        broadcastId: broadcastId
+      });
+    } catch (e) {
+      // Silently fail
+    }
+  }
+  
+  // Manejar desconexión de un socket
+  handleDisconnect(socket) {
+    try {
+      if (!socket.isScalableBroadcastSocket) return;
+      
+      const user = this.users[socket.userid];
+      if (!user) return;
+      
+      if (!user.isInitiator) {
+        this.notifyViewerCount(user.broadcastId, true);
+      }
+      
+      if (user.isInitiator) {
+        // Detener todo el broadcast cuando se desconecta el iniciador
+        this.stopBroadcast(user.broadcastId);
+        delete this.users[socket.userid];
+        return;
+      }
+      
+      // Limpiar de la lista de receptores del emisor
+      if (user.source) {
+        const source = this.users[user.source];
+        if (source) {
+          source.receivers = source.receivers.filter(r => r.id !== user.id);
+        }
+      }
+      
+      // Si tenía receptores, pedirles que se reconecten
+      if (user.receivers.length && !user.isInitiator) {
+        this.reconnectViewers(user.receivers);
+      }
+      
+      delete this.users[socket.userid];
+    } catch (e) {
+      pushLogs(this.config, 'scalable-broadcast-disconnect', e);
+    }
+  }
+  
+  // Detener completamente un broadcast
+  stopBroadcast(broadcastId) {
+    for (const id in this.users) {
+      const user = this.users[id];
+      if (user.broadcastId === broadcastId) {
+        user.socket.emit('broadcast-stopped', broadcastId);
+      }
+    }
+  }
+  
+  // Pedir a los viewers que se reconecten
+  reconnectViewers(receivers) {
+    try {
+      for (const receiver of receivers) {
+        if (this.users[receiver.id]) {
+          this.users[receiver.id].canRelay = false;
+          this.users[receiver.id].source = null;
+          receiver.socket.emit('rejoin-broadcast', receiver.broadcastId);
+        }
+      }
+    } catch (e) {
+      pushLogs(this.config, 'reconnectViewers', e);
+    }
+  }
+  
+  // Encontrar un relayer disponible
+  findAvailableRelayer(broadcastId) {
+    try {
+      const initiator = this.users[broadcastId];
+      
+      // Comprobar si el iniciador puede recibir más usuarios
+      if (initiator && initiator.receivers.length < this.maxRelays) {
+        return initiator;
+      }
+      
+      // Comprobar el último relayer usado
+      if (initiator && initiator.lastRelayId) {
+        const lastRelay = this.users[initiator.lastRelayId];
+        if (lastRelay && lastRelay.receivers.length < this.maxRelays) {
+          return lastRelay;
+        }
+      }
+      
+      // Buscar usuarios que puedan relay
+      for (const id in this.users) {
+        const user = this.users[id];
+        if (user.broadcastId === broadcastId && 
+            user.receivers.length < this.maxRelays && 
+            user.canRelay) {
+          return user;
+        }
+      }
+      
+      // Devolver el iniciador como último recurso
+      return initiator;
+    } catch (e) {
+      pushLogs(this.config, 'findAvailableRelayer', e);
+      return null;
+    }
+  }
+  
+  // Obtener lista de usuarios para depuración
+  getUsersList() {
+    try {
+      const list = [];
+      for (const id in this.users) {
+        const user = this.users[id];
+        if (!user) continue;
+        
+        try {
+          list.push({
+            userid: user.id,
+            broadcastId: user.broadcastId,
+            isBroadcastInitiator: user.isInitiator,
+            maxRelayLimitPerUser: user.maxRelays,
+            relayReceivers: user.receivers.map(r => r.id),
+            receivingFrom: user.source,
+            canRelay: user.canRelay,
+            typeOfStreams: user.streams
+          });
+        } catch (e) {
+          pushLogs(this.config, 'getUsersList-item', e);
+        }
+      }
+      return list;
+    } catch (e) {
+      pushLogs(this.config, 'getUsersList', e);
+      return [];
+    }
+  }
 }
 
-function getFirstAvailableBroadcaster(broadcastId, maxRelayLimitPerUser) {
-    try {
-        let broadcastInitiator = users[broadcastId];
-
-        // if initiator is capable to receive users
-        if (broadcastInitiator && broadcastInitiator.relayReceivers.length < maxRelayLimitPerUser) {
-            return broadcastInitiator;
-        }
-
-        // otherwise if initiator knows who is current relaying user
-        if (broadcastInitiator && broadcastInitiator.lastRelayuserid) {
-            let lastRelayUser = users[broadcastInitiator.lastRelayuserid];
-            if (lastRelayUser && lastRelayUser.relayReceivers.length < maxRelayLimitPerUser) {
-                return lastRelayUser;
-            }
-        }
-
-        // otherwise, search for a user who not relayed anything yet
-        // todo: why we're using "for-loop" here? it is not safe. -> Comment is outdated/misleading, for...in is safe for object iteration.
-        let userFound;
-        for (const n in users) { // Use for...in for object keys.
-            const user = users[n];
-
-            if (userFound) {
-                continue;
-            } else if (user.broadcastId === broadcastId) {
-                // if (!user.relayReceivers.length && user.canRelay === true) { // Original condition was too strict.
-                if (user.relayReceivers.length < maxRelayLimitPerUser && user.canRelay === true) { // Allow relaying if relayReceivers count is below limit and user can relay.
-                    userFound = user;
-                }
-            }
-        }
-
-        if (userFound) {
-            return userFound;
-        }
-
-        // need to increase "maxRelayLimitPerUser" in this situation
-        // so that each relaying user can distribute the bandwidth
-        return broadcastInitiator; // Return initiator as fallback, even if overloaded, to at least connect the viewer. Consider more sophisticated fallback strategies.
-    } catch (e) {
-        pushLogs(config, 'getFirstAvailableBroadcaster', e);
-    }
+// Función de fábrica para crear una instancia del manejador de broadcast
+function createBroadcastHandler(config, socket, maxRelays) {
+  const manager = new BroadcastManager(config, maxRelays);
+  return manager.setupSocket(socket);
 }
-export default ScalableBroadcastHandler
+
+export default createBroadcastHandler;

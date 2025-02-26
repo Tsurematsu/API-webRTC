@@ -1,0 +1,17 @@
+{
+    "socketURL": "/",
+    "dirPath": null,
+    "homePage": "/demos/index.html",
+    "socketMessageEvent": "RTCMultiConnection-Message",
+    "socketCustomEvent": "RTCMultiConnection-Custom-Message",
+    "port": 9001,
+    "enableLogs": false,
+    "autoRebootServerOnFailure": false,
+    "isUseHTTPs": null,
+    "sslKey": null,
+    "sslCert": null,
+    "sslCabundle": null,
+    "enableAdmin": false,
+    "adminUserName": null,
+    "adminPassword": null
+}

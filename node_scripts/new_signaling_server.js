@@ -5,7 +5,9 @@ import  pushLogs from './pushLogs.js';
 // const strings
 import CONST_STRINGS from './const_strings.js';
 import isAdminAuthorized from './verify-admin.js';
-
+import { createRequire } from 'module';
+import createBroadcastHandler from './scalable-broadcast.js';
+const require = createRequire(import.meta.url);
 // Usar Maps en lugar de objetos literales para mejor rendimiento en iteraciones y claridad
 const listOfUsers = new Map();
 const listOfRooms = new Map();
@@ -14,8 +16,448 @@ let adminSocket;
 
 // for scalable-broadcast demos
 let ScalableBroadcast;
+import pushLogs from './pushLogs.js';
+import CONST_STRINGS from './const_strings.js';
+import isAdminAuthorized from './verify-admin.js';
 
+// User class (unchanged from your code)
+class User {
+    constructor(socket, params) {
+        this.socket = socket;
+        this.userid = socket.userid;
+        this.connectedWith = new Map();
+        this.extra = params.extra || {};
+        this.admininfo = {};
+        this.socketMessageEvent = params.socketMessageEvent || 'RTCMultiConnection-Message';
+        this.socketCustomEvent = params.socketCustomEvent || '';
+    }
 
+    updateExtra(extra) {
+        this.extra = extra;
+        this.admininfo.extra = extra;
+    }
+
+    disconnectRemoteUser(remoteUserId) {
+        if (this.connectedWith.has(remoteUserId)) {
+            this.connectedWith.delete(remoteUserId);
+            this.socket.emit('user-disconnected', remoteUserId);
+        }
+    }
+
+    toJSON() {
+        return {
+            userid: this.userid,
+            admininfo: this.admininfo,
+            connectedWith: Array.from(this.connectedWith.keys())
+        };
+    }
+}
+
+// Room class (unchanged from your code)
+class Room {
+    constructor(ownerId, sessionid, maxParticipantsAllowed, params) {
+        this.owner = ownerId;
+        this.sessionid = sessionid;
+        this.maxParticipantsAllowed = parseInt(maxParticipantsAllowed, 10) || 1000;
+        this.participants = [];
+        this.extra = params.extra || {};
+        this.socketMessageEvent = params.socketMessageEvent || '';
+        this.socketCustomEvent = params.socketCustomEvent || '';
+        this.identifier = params.identifier || '';
+        this.session = params.session || { audio: true, video: true };
+        this.password = params.password || null;
+    }
+
+    addParticipant(userid) {
+        if (!this.participants.includes(userid)) {
+            this.participants.push(userid);
+        }
+    }
+
+    removeParticipant(userid) {
+        this.participants = this.participants.filter(pid => pid !== userid);
+    }
+
+    isFull() {
+        return this.participants.length >= this.maxParticipantsAllowed;
+    }
+
+    isPasswordProtected() {
+        return !!this.password && this.password.trim().length > 0;
+    }
+
+    toJSON() {
+        return {
+            maxParticipantsAllowed: this.maxParticipantsAllowed,
+            owner: this.owner,
+            participants: this.participants,
+            extra: this.extra,
+            session: this.session,
+            sessionid: this.sessionid,
+            isRoomFull: this.isFull(),
+            isPasswordProtected: this.isPasswordProtected()
+        };
+    }
+}
+
+// Main SignalingServer class
+class SignalingServer {
+    constructor(config = {}) {
+        this.config = config;
+        this.listOfUsers = new Map();
+        this.listOfRooms = new Map();
+        this.adminSocket = null;
+        this.ScalableBroadcast = null;
+    }
+
+    // Initialize the server with a socket connection
+    onConnection(socket) {
+        const params = this.parseParams(socket.handshake.query);
+        socket.userid = params.userid || this.generateRandomId();
+        params.sessionid = params.sessionid || this.generateRandomId();
+
+        if (params.userid === 'admin') {
+            this.handleAdminSocket(socket, params);
+            return;
+        }
+
+        this.appendUser(socket, params);
+        this.setupSocketEvents(socket, params);
+    }
+
+    // Parse query parameters
+    parseParams(query) {
+        const params = { ...query };
+        if (params.extra) {
+            try {
+                params.extra = typeof params.extra === 'string' ? JSON.parse(params.extra) : params.extra;
+            } catch (e) {
+                params.extra = {};
+            }
+        }
+        return params;
+    }
+
+    // Generate random ID
+    generateRandomId() {
+        return String(Math.random() * 100).replace('.', '');
+    }
+
+    // Append a new user to the list
+    appendUser(socket, params) {
+        try {
+            if (this.listOfUsers.has(socket.userid)) {
+                const oldUserId = socket.userid;
+                socket.userid = this.generateRandomId();
+                socket.emit('userid-already-taken', oldUserId, socket.userid);
+                return;
+            }
+            const user = new User(socket, params);
+            this.listOfUsers.set(socket.userid, user);
+            this.sendToAdmin();
+        } catch (e) {
+            pushLogs(this.config, 'appendUser', e);
+        }
+    }
+
+    // Send updates to admin
+    sendToAdmin(all = false) {
+        if (!this.config.enableAdmin || !this.adminSocket) return;
+
+        try {
+            const users = Array.from(this.listOfUsers.entries()).map(([userid, user]) => user.toJSON());
+            const rooms = all ? Array.from(this.listOfRooms.values()).map(room => room.toJSON()) : [];
+            const scalableBroadcastUsers = this.ScalableBroadcast ? this.ScalableBroadcast._.getUsers() : [];
+
+            this.adminSocket.emit('admin', {
+                newUpdates: !all,
+                listOfRooms: rooms,
+                listOfUsers: users.length,
+                scalableBroadcastUsers: scalableBroadcastUsers.length
+            });
+        } catch (e) {
+            pushLogs(this.config, 'sendToAdmin', e);
+        }
+    }
+
+    // Handle admin socket
+    handleAdminSocket(socket, params) {
+        if (!this.config.enableAdmin || !params.adminUserName || !params.adminPassword) {
+            socket.emit('admin', { error: CONST_STRINGS.INVALID_ADMIN_CREDENTIAL });
+            socket.disconnect();
+            return;
+        }
+
+        if (!isAdminAuthorized(params, this.config)) {
+            socket.emit('admin', { error: 'Invalid admin username or password.' });
+            socket.disconnect();
+            return;
+        }
+
+        this.adminSocket = socket;
+        socket.emit('admin', { connected: true });
+
+        socket.on('admin', (message, callback) => this.handleAdminMessage(socket, params, message, callback));
+    }
+
+    // Handle admin messages
+    handleAdminMessage(socket, params, message, callback = () => {}) {
+        if (!isAdminAuthorized(params, this.config)) {
+            socket.emit('admin', { error: 'Invalid admin username or password.' });
+            socket.disconnect();
+            return;
+        }
+
+        if (message.all) {
+            this.sendToAdmin(true);
+        } else if (message.userinfo && message.userid) {
+            const user = this.listOfUsers.get(message.userid);
+            callback(user ? user.admininfo : { error: CONST_STRINGS.USERID_NOT_AVAILABLE });
+        } else if (message.clearLogs) {
+            pushLogs(this.config, '', '', callback);
+        } else if (message.deleteUser && message.userid) {
+            const user = this.listOfUsers.get(message.userid);
+            if (user) {
+                user.socket.disconnect();
+                this.listOfUsers.delete(message.userid);
+                callback(true);
+            } else {
+                callback(false);
+            }
+        } else if (message.deleteRoom && message.roomid) {
+            const room = this.listOfRooms.get(message.roomid);
+            if (room) {
+                room.participants.forEach(userid => {
+                    const user = this.listOfUsers.get(userid);
+                    if (user) user.socket.disconnect();
+                });
+                this.listOfRooms.delete(message.roomid);
+                callback(true);
+            } else {
+                callback(false);
+            }
+        }
+    }
+
+    // Setup socket event listeners
+    setupSocketEvents(socket, params) {
+        const enableScalableBroadcast = params.enableScalableBroadcast === true || params.enableScalableBroadcast === 'true';
+        const socketMessageEvent = params.socketMessageEvent || 'RTCMultiConnection-Message';
+        let autoCloseEntireSession = params.autoCloseEntireSession === true || params.autoCloseEntireSession === 'true';
+
+        if (enableScalableBroadcast && !this.ScalableBroadcast) {
+            this.ScalableBroadcast = createBroadcastHandler(this.config, socket, params.maxRelayLimitPerUser);
+            this.ScalableBroadcast._ = this.ScalableBroadcast;
+        }
+
+        socket.on('extra-data-updated', extra => this.handleExtraDataUpdated(socket, extra));
+        socket.on('get-remote-user-extra-data', (remoteUserId, callback) => this.handleGetRemoteUserExtraData(socket, remoteUserId, callback));
+        socket.on('set-custom-socket-event-listener', customEvent => this.handleCustomSocketEvent(socket, customEvent));
+        socket.on('changed-uuid', (newUserId, callback) => this.handleChangedUUID(socket, newUserId, callback));
+        socket.on('set-password', (password, callback) => this.handleSetPassword(socket, password, callback));
+        socket.on('disconnect-with', (remoteUserId, callback) => this.handleDisconnectWith(socket, remoteUserId, callback));
+        socket.on('close-entire-session', callback => this.handleCloseEntireSession(socket, callback));
+        socket.on('check-presence', (roomid, callback) => this.handleCheckPresence(roomid, callback));
+        socket.on(socketMessageEvent, (message, callback) => this.handleMessage(socket, message, callback, enableScalableBroadcast));
+        socket.on('is-valid-password', (password, roomid, callback) => this.handleIsValidPassword(password, roomid, callback));
+        socket.on('get-public-rooms', (identifier, callback) => this.handleGetPublicRooms(identifier, callback));
+        socket.on('open-room', (arg, callback) => this.handleOpenRoom(socket, arg, callback, params, enableScalableBroadcast, autoCloseEntireSession));
+        socket.on('join-room', (arg, callback) => this.handleJoinRoom(socket, arg, callback, params, enableScalableBroadcast));
+        socket.on('disconnect', () => this.handleDisconnect(socket));
+    }
+
+    // Event handler methods (implement these based on original logic)
+    handleExtraDataUpdated(socket, extra) {
+        const user = this.listOfUsers.get(socket.userid);
+        if (!user) return;
+
+        user.updateExtra(extra);
+        for (const [remoteUserId, remoteSocket] of user.connectedWith) {
+            remoteSocket.emit('extra-data-updated', socket.userid, extra);
+        }
+        const room = this.listOfRooms.get(user.admininfo.sessionid);
+        if (room) {
+            if (socket.userid === room.owner) room.extra = extra;
+            room.participants.forEach(pid => {
+                const participant = this.listOfUsers.get(pid);
+                if (participant) participant.socket.emit('extra-data-updated', socket.userid, extra);
+            });
+        }
+        this.sendToAdmin();
+    }
+
+    handleGetRemoteUserExtraData(socket, remoteUserId, callback = () => {}) {
+        const remoteUser = this.listOfUsers.get(remoteUserId);
+        callback(remoteUser ? remoteUser.extra : CONST_STRINGS.USERID_NOT_AVAILABLE);
+    }
+
+    handleCustomSocketEvent(socket, customEvent) {
+        const dontDuplicateListeners = new Set();
+        if (dontDuplicateListeners.has(customEvent)) return;
+        dontDuplicateListeners.add(customEvent);
+        socket.on(customEvent, message => socket.broadcast.emit(customEvent, message));
+    }
+
+    handleChangedUUID(socket, newUserId, callback = () => {}) {
+        const currentUser = this.listOfUsers.get(socket.userid);
+        if (currentUser) {
+            this.listOfUsers.set(newUserId, currentUser);
+            currentUser.socket.userid = socket.userid = newUserId;
+            this.listOfUsers.delete(currentUser.userid);
+        } else {
+            socket.userid = newUserId;
+            this.appendUser(socket, this.parseParams(socket.handshake.query));
+        }
+        callback();
+    }
+
+    handleSetPassword(socket, password, callback = () => {}) {
+        const room = this.listOfRooms.get(socket.admininfo?.sessionid);
+        if (!room) return callback(null, null, CONST_STRINGS.DID_NOT_JOIN_ANY_ROOM);
+        if (room.owner === socket.userid) {
+            room.password = password;
+            callback(true, room.sessionid, null);
+        } else {
+            callback(false, room.sessionid, CONST_STRINGS.ROOM_PERMISSION_DENIED);
+        }
+    }
+
+    handleDisconnectWith(socket, remoteUserId, callback = () => {}) {
+        const user = this.listOfUsers.get(socket.userid);
+        if (user) user.disconnectRemoteUser(remoteUserId);
+
+        const remoteUser = this.listOfUsers.get(remoteUserId);
+        if (remoteUser) remoteUser.disconnectRemoteUser(socket.userid);
+        this.sendToAdmin();
+        callback();
+    }
+
+    handleCloseEntireSession(socket, callback = () => {}) {
+        const user = this.listOfUsers.get(socket.userid);
+        if (!user || !user.admininfo) return callback(false, CONST_STRINGS.INVALID_SOCKET);
+
+        const room = this.listOfRooms.get(user.admininfo.sessionid);
+        if (!room || room.owner !== socket.userid) return callback(false, CONST_STRINGS.ROOM_PERMISSION_DENIED);
+
+        this.closeOrShiftRoom(socket, true);
+        callback(true);
+    }
+
+    handleCheckPresence(roomid, callback) {
+        const room = this.listOfRooms.get(roomid);
+        if (!room || room.participants.length === 0) {
+            callback(false, roomid, { _room: { isFull: false, isPasswordProtected: false } });
+        } else {
+            const extra = { ...room.extra, _room: room.toJSON() };
+            callback(true, roomid, extra);
+        }
+    }
+
+    handleMessage(socket, message, callback = () => {}, enableScalableBroadcast) {
+        // Implement message handling logic from onMessageCallback and joinARoom
+        // This is a placeholder; you need to adapt the original logic here
+    }
+
+    handleIsValidPassword(password, roomid, callback = () => {}) {
+        const room = this.listOfRooms.get(roomid);
+        if (!room) return callback(false, roomid, CONST_STRINGS.ROOM_NOT_AVAILABLE);
+        if (!password) return callback(false, roomid, 'You did not enter the password.');
+        callback(room.password === password, roomid, room.password ? CONST_STRINGS.INVALID_PASSWORD : 'This room does not have a password.');
+    }
+
+    handleGetPublicRooms(identifier, callback) {
+        const rooms = Array.from(this.listOfRooms.entries())
+            .filter(([_, room]) => room.identifier === identifier)
+            .map(([_, room]) => room.toJSON());
+        callback(rooms);
+    }
+
+    handleOpenRoom(socket, arg, callback = () => {}, params, enableScalableBroadcast, autoCloseEntireSession) {
+        this.closeOrShiftRoom(socket);
+        if (this.listOfRooms.has(arg.sessionid) && this.listOfRooms.get(arg.sessionid).participants.length) {
+            return callback(false, CONST_STRINGS.ROOM_NOT_AVAILABLE);
+        }
+
+        const room = new Room(socket.userid, arg.sessionid, params.maxParticipantsAllowed, {
+            extra: arg.extra,
+            session: arg.session,
+            identifier: arg.identifier,
+            password: arg.password
+        });
+        this.listOfRooms.set(arg.sessionid, room);
+        room.addParticipant(socket.userid);
+
+        const user = this.listOfUsers.get(socket.userid);
+        if (user) {
+            user.admininfo = { sessionid: arg.sessionid, session: arg.session, extra: arg.extra };
+            user.extra = arg.extra;
+        }
+
+        this.sendToAdmin();
+        callback(true);
+    }
+
+    handleJoinRoom(socket, arg, callback = () => {}, params, enableScalableBroadcast) {
+        this.closeOrShiftRoom(socket);
+        const room = this.listOfRooms.get(arg.sessionid);
+        if (!room) return callback(false, CONST_STRINGS.ROOM_NOT_AVAILABLE);
+        if (room.password && room.password !== arg.password) return callback(false, CONST_STRINGS.INVALID_PASSWORD);
+        if (room.isFull()) return callback(false, CONST_STRINGS.ROOM_FULL);
+
+        room.addParticipant(socket.userid);
+        const user = this.listOfUsers.get(socket.userid);
+        if (user) {
+            user.admininfo = { sessionid: arg.sessionid, session: arg.session, extra: arg.extra };
+            user.extra = arg.extra;
+        }
+
+        this.sendToAdmin();
+        callback(true);
+    }
+
+    handleDisconnect(socket) {
+        const user = this.listOfUsers.get(socket.userid);
+        if (user) {
+            for (const [remoteUserId, remoteSocket] of user.connectedWith) {
+                remoteSocket.emit('user-disconnected', socket.userid);
+            }
+            this.listOfUsers.delete(socket.userid);
+        }
+        this.closeOrShiftRoom(socket);
+        this.sendToAdmin();
+    }
+
+    closeOrShiftRoom(socket, autoClose = false) {
+        const user = this.listOfUsers.get(socket.userid);
+        if (!user || !user.admininfo) return;
+
+        const room = this.listOfRooms.get(user.admininfo.sessionid);
+        if (!room) return;
+
+        if (socket.userid === room.owner) {
+            if (!autoClose && room.participants.length > 1) {
+                const newOwner = room.participants.find(pid => pid !== socket.userid && this.listOfUsers.has(pid));
+                if (newOwner) {
+                    room.owner = newOwner;
+                    room.removeParticipant(socket.userid);
+                    this.listOfUsers.get(newOwner).socket.emit('set-isInitiator-true', room.sessionid);
+                } else {
+                    this.listOfRooms.delete(room.sessionid);
+                }
+            } else {
+                this.listOfRooms.delete(room.sessionid);
+            }
+        } else {
+            room.removeParticipant(socket.userid);
+        }
+    }
+}
+
+export function signalingServer(socket, config) {
+    const server = new SignalingServer(config);
+    server.onConnection(socket);
+}
+// para reemplazar signaling_server hay que verificar si todas las funciones existen ya que signaling_server funciona y todos los metodos y funciones se usan 
 function signaling_server (socket, config) {
     config = config || {};
 
