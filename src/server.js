@@ -5,7 +5,7 @@ import http from 'http';
 import https from 'https';
 import cors from 'cors';    
 import { Server } from 'socket.io';
-import RTCMultiConnectionServer from '../node_scripts/index.js';
+import RTCMultiConnectionServer from '../cloudrtc//index.js';
 
 var PORT = 9001;
 var isUseHTTPs = false;
@@ -93,9 +93,9 @@ if (isUseHTTPs) {
     httpApp = httpServer.createServer(serverHandler);
 }
 
-RTCMultiConnectionServer.beforeHttpListen(httpApp, config);
+RTCMultiConnectionServer.before_http_listen(httpApp, config);
 httpApp.listen(PORT, "0.0.0.0", function() {
-    RTCMultiConnectionServer.afterHttpListen(httpApp, config);
+    RTCMultiConnectionServer.after_http_listen(httpApp, config);
 });
 
 // Socket.io

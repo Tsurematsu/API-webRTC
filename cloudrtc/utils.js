@@ -190,7 +190,21 @@ const COLOR_CODES = {
     CYAN: "\x1b[36m",
     WHITE: "\x1b[37m"
 };
+const BASH_COLORS_HELPER = {}; // Inicializamos como un objeto vacío
 
+// Función para generar los métodos dinámicamente
+for (const key in COLOR_CODES) {
+    if (key !== 'reset') { // No creamos un método para 'reset'
+        const styleCode = COLOR_CODES[key];
+        const methodName = `get${key.charAt(0).toUpperCase()}${key.slice(1)}`; // getRedFG, getYellowBG, etc.
+
+        BASH_COLORS_HELPER[methodName] = function(str) {
+            return styleCode + (str || '%s') + COLOR_CODES.reset;
+        };
+    } else {
+        BASH_COLORS_HELPER.reset = COLOR_CODES.reset; // Añadimos 'reset' directamente
+    }
+}
 /**
  * Helper function for platform-specific path resolution
  * @param {string} url - URL to resolve
@@ -208,5 +222,6 @@ export {
     resolveURL,
     Logger,
     StorageManager,
-    logger as defaultLogger
+    logger as defaultLogger,
+    BASH_COLORS_HELPER
 };
