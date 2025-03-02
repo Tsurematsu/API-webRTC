@@ -1,19 +1,176 @@
-// Muaz Khan      - www.MuazKhan.com
-// MIT License    - www.WebRTC-Experiment.com/licence
-// Documentation  - github.com/muaz-khan/RTCMultiConnection
+//                    ScalableBroadcast = require('./Scalable-Broadcast.js');
+import { createBroadcastHandler } from './broadcaster.js';
 import {pushLogs, CONST_STRINGS } from './utils.js';
 let listOfUsers = {};
 let listOfRooms = {};
 
 let adminSocket;
 
-// for scalable-broadcast demos
 let ScalableBroadcast;
 
 function isAdminAuthorized(params, config) {
     if (!params || !params.adminUserName || !params.adminPassword) return false;
     return params.adminUserName === config.adminUserName && 
            params.adminPassword === config.adminPassword;
+}
+// User management helper functions
+const UserManager = {
+    createUser(socket, extra = {}) {
+        return {
+            socket,
+            connectedWith: {},
+            extra,
+            admininfo: {},
+            socketMessageEvent: socket.handshake.query.socketMessageEvent || '',
+            socketCustomEvent: socket.handshake.query.socketCustomEvent || ''
+        };
+    },
+
+    addUser(socket, params) {
+        try {
+            const extra = this.parseExtra(params);
+            listOfUsers[socket.userid] = this.createUser(socket, extra);
+            return true;
+        } catch (e) {
+            pushLogs(config, 'appendUser', e);
+            return false;
+        }
+    },
+
+    parseExtra(params) {
+        if (!params.extra) return {};
+        
+        if (typeof params.extra === 'string') {
+            try {
+                return JSON.parse(params.extra);
+            } catch (e) {
+                return params.extra;
+            }
+        }
+        return params.extra;
+    }
+};
+
+// Admin related functionality
+const AdminManager = {
+    sendUpdateToAdmin(config, allData = false) {
+        if (!config.enableAdmin || !adminSocket) return;
+
+        try {
+            const adminUpdate = this.prepareAdminUpdate(allData);
+            adminSocket.emit('admin', adminUpdate);
+        } catch (e) {
+            pushLogs(config, 'admin', e);
+        }
+    },
+
+    prepareAdminUpdate(includeAllData) {
+        const users = this.getUsersInfo();
+        const scalableBroadcastUsers = this.getScalableBroadcastUsers();
+
+        return {
+            newUpdates: !includeAllData,
+            listOfRooms: includeAllData ? listOfRooms : [],
+            listOfUsers: Object.keys(listOfUsers).length,
+            scalableBroadcastUsers: scalableBroadcastUsers.length
+        };
+    },
+
+    getUsersInfo() {
+        const users = [];
+        Object.keys(listOfUsers).forEach(userid => {
+            try {
+                const item = listOfUsers[userid];
+                if (!item) return;
+
+                users.push({
+                    userid,
+                    admininfo: item.socket.admininfo || '',
+                    connectedWith: Object.keys(item.connectedWith || {})
+                });
+            } catch (e) {
+                pushLogs(config, 'admin.user-looper', e);
+            }
+        });
+        return users;
+    },
+
+    getScalableBroadcastUsers() {
+        return (ScalableBroadcast && ScalableBroadcast._) ? 
+               ScalableBroadcast._.getUsers() : 
+               [];
+    }
+};
+
+// Admin socket handler
+function handleAdminSocket(socket, params) {
+    if (!isValidAdminRequest(params, config)) {
+        handleInvalidAdmin(socket, params);
+        return;
+    }
+
+    setupAdminSocket(socket, params);
+}
+
+function isValidAdminRequest(params, config) {
+    return config.enableAdmin === true && 
+           params.adminUserName && 
+           params.adminPassword &&
+           isAdminAuthorized(params, config);
+}
+
+function handleInvalidAdmin(socket, params) {
+    socket.emit('admin', {
+        error: 'Please pass "adminUserName" and "adminPassword" via socket.io parameters.'
+    });
+
+    pushLogs(config, 'invalid-admin', {
+        message: CONST_STRINGS.INVALID_ADMIN_CREDENTIAL,
+        stack: `name: ${params.adminUserName}\npassword: ${params.adminPassword}`
+    });
+
+    socket.disconnect();
+}
+
+function setupAdminSocket(socket, params) {
+    socket.emit('admin', { connected: true });
+    adminSocket = socket;
+
+    socket.on('admin', (message, callback) => {
+        if (!isAdminAuthorized(params, config)) {
+            handleInvalidAdmin(socket, params);
+            return;
+        }
+
+        handleAdminMessage(message, callback || function() {});
+    });
+}
+
+function handleAdminMessage(message, callback) {
+    if (message.all === true) {
+        AdminManager.sendUpdateToAdmin(config, true);
+    }
+    if (message.userinfo === true && message.userid) {
+        handleUserInfoRequest(message, callback);
+    }
+    if (message.clearLogs === true) {
+        pushLogs(config, '', '', callback);
+    }
+    if (message.deleteUser === true) {
+        handleDeleteUser(message, callback);
+    }
+    if (message.deleteRoom === true) {
+        handleDeleteRoom(message, callback);
+    }
+}
+
+// Replace the original functions with calls to these new implementations
+function appendUser(socket, params) {
+    return UserManager.addUser(socket, params);
+}
+
+function sendToAdmin(all = false) {
+    AdminManager.sendUpdateToAdmin(config, all);
 }
 function signaling_server (socket, config) {
     config = config || {};
@@ -22,206 +179,10 @@ function signaling_server (socket, config) {
 
     // to secure your socket.io usage: (via: docs/tips-tricks.md)
     // io.set('origins', 'https://domain.com');
+    appendUser(socket, params);
 
-    function appendUser(socket, params) {
-        try {
-            let extra = params.extra;
-
-            let params = socket.handshake.query;
-
-            if (params.extra) {
-                try {
-                    if (typeof params.extra === 'string') {
-                        params.extra = JSON.parse(params.extra);
-                    }
-                    extra = params.extra;
-                } catch (e) {
-                    extra = params.extra;
-                }
-            }
-
-            listOfUsers[socket.userid] = {
-                socket: socket,
-                connectedWith: {},
-                extra: extra || {},
-                admininfo: {},
-                socketMessageEvent: params.socketMessageEvent || '',
-                socketCustomEvent: params.socketCustomEvent || ''
-            };
-        } catch (e) {
-            pushLogs(config, 'appendUser', e);
-        }
-
-        sendToAdmin();
-    }
-
-    function sendToAdmin(all) {
-        if(config.enableAdmin !== true) {
-            return;
-        }
-
-        try {
-            if (adminSocket) {
-                let users = [];
-                // temporarily disabled
-                config.enableAdmin === true && Object.keys(listOfUsers).forEach(function(userid) {
-                    try {
-                        let item = listOfUsers[userid];
-                        if (!item) return; // maybe user just left?
-
-                        if (!item.connectedWith) {
-                            item.connectedWith = {};
-                        }
-
-                        if (!item.socket) {
-                            item.socket = {};
-                        }
-
-                        users.push({
-                            userid: userid,
-                            admininfo: item.socket.admininfo || '',
-                            connectedWith: Object.keys(item.connectedWith)
-                        });
-                    } catch (e) {
-                        pushLogs(config, 'admin.user-looper', e);
-                    }
-                });
-
-                let scalableBroadcastUsers = 0;
-                if(ScalableBroadcast && ScalableBroadcast._) {
-                    scalableBroadcastUsers = ScalableBroadcast._.getUsers();
-                }
-
-                adminSocket.emit('admin', {
-                    newUpdates: !all,
-                    listOfRooms: !!all ? listOfRooms : [],
-                    listOfUsers: Object.keys(listOfUsers).length, // users
-                    scalableBroadcastUsers: scalableBroadcastUsers.length
-                });
-            }
-        } catch (e) {
-            pushLogs(config, 'admin', e);
-        }
-    }
-
-    function handleAdminSocket(socket, params) {
-        if(config.enableAdmin !== true || !params.adminUserName || !params.adminPassword) {
-            socket.emit('admin', {
-                error: 'Please pass "adminUserName" and "adminPassword" via socket.io parameters.'
-            });
-            
-            pushLogs(config, 'invalid-admin', {
-                message: CONST_STRINGS.INVALID_ADMIN_CREDENTIAL,
-                stack: 'name: ' + params.adminUserName + '\n' + 'password: ' + params.adminPassword
-            });
-
-            socket.disconnect(); //disabled admin
-            return;
-        }
-
-        if (!isAdminAuthorized(params, config)) {
-            socket.emit('admin', {
-                error: 'Invalid admin username or password.'
-            });
-
-            pushLogs(config, 'invalid-admin', {
-                message: CONST_STRINGS.INVALID_ADMIN_CREDENTIAL,
-                stack: 'name: ' + params.adminUserName + '\n' + 'password: ' + params.adminPassword
-            });
-
-            socket.disconnect();
-            return;
-        }
-
-        socket.emit('admin', {
-            connected: true
-        });
-
-        adminSocket = socket;
-        socket.on('admin', function(message, callback) {
-            if (!isAdminAuthorized(params, config)) {
-                socket.emit('admin', {
-                    error: 'Invalid admin username or password.'
-                });
-
-                pushLogs(config, 'invalid-admin', {
-                    message: CONST_STRINGS.INVALID_ADMIN_CREDENTIAL,
-                    stack: 'name: ' + params.adminUserName + '\n' + 'password: ' + params.adminPassword
-                });
-
-                socket.disconnect();
-                return;
-            }
-
-            callback = callback || function() {};
-
-            if (message.all === true) {
-                sendToAdmin(true);
-            }
-
-            if (message.userinfo === true && message.userid) {
-                try {
-                    let user = listOfUsers[message.userid];
-                    if (user) {
-                        callback(user.socket.admininfo || {});
-                    } else {
-                        callback({
-                            error: CONST_STRINGS.USERID_NOT_AVAILABLE
-                        });
-                    }
-                } catch (e) {
-                    pushLogs(config, 'userinfo', e);
-                }
-            }
-
-            if (message.clearLogs === true) {
-                // last callback parameter will force to clear logs
-                pushLogs(config, '', '', callback);
-            }
-
-            if (message.deleteUser === true) {
-                try {
-                    let user = listOfUsers[message.userid];
-
-                    if (user) {
-                        if (user.socket.owner) {
-                            // delete listOfRooms[user.socket.owner];
-                        }
-
-                        user.socket.disconnect();
-                    }
-
-                    // delete listOfUsers[message.userid];
-                    callback(true);
-                } catch (e) {
-                    pushLogs(config, 'deleteUser', e);
-                    callback(false);
-                }
-            }
-
-            if (message.deleteRoom === true) {
-                try {
-                    let room = listOfRooms[message.roomid];
-
-                    if (room) {
-                        let participants = room.participants;
-                        delete listOfRooms[message.roomid];
-                        participants.forEach(function(userid) {
-                            let user = listOfUsers[userid];
-                            if (user) {
-                                user.socket.disconnect();
-                            }
-                        });
-                    }
-                    callback(true);
-                } catch (e) {
-                    pushLogs(config, 'deleteRoom', e);
-                    callback(false);
-                }
-            }
-        });
-    }
-
+    sendToAdmin(all);
+    handleAdminSocket(socket, params);
     function onConnection(socket) {
         let params = socket.handshake.query;
 
@@ -262,7 +223,7 @@ function signaling_server (socket, config) {
             try {
                 if (!ScalableBroadcast) {
                     // path to scalable broadcast script must be accurate
-                    ScalableBroadcast = require('./Scalable-Broadcast.js');
+                    ScalableBroadcast = createBroadcastHandler
                 }
                 ScalableBroadcast._ = ScalableBroadcast(config, socket, params.maxRelayLimitPerUser);
             } catch (e) {
@@ -802,7 +763,6 @@ function signaling_server (socket, config) {
             callback = callback || function() {};
 
             try {
-                // if already joined a room, either leave or close it
                 closeOrShiftRoom();
 
                 if (listOfRooms[arg.sessionid] && listOfRooms[arg.sessionid].participants.length) {
@@ -835,7 +795,6 @@ function signaling_server (socket, config) {
                 pushLogs(config, 'open-room', e);
             }
 
-            // append this user into participants list
             appendToRoom(arg.sessionid, socket.userid);
 
             try {
@@ -894,7 +853,6 @@ function signaling_server (socket, config) {
             callback = callback || function() {};
 
             try {
-                // if already joined a room, either leave or close it
                 closeOrShiftRoom();
 
                 if (enableScalableBroadcast === true) {
@@ -902,7 +860,6 @@ function signaling_server (socket, config) {
                     arg.sessionid = arg.extra.broadcastId;
                 }
 
-                // maybe redundant?
                 if (!listOfUsers[socket.userid]) {
                     listOfUsers[socket.userid] = {
                         socket: socket,
@@ -981,12 +938,10 @@ function signaling_server (socket, config) {
             }
 
             try {
-                // inform all connected users
                 if (listOfUsers[socket.userid]) {
                     for (let s in listOfUsers[socket.userid].connectedWith) {
                         listOfUsers[socket.userid].connectedWith[s].emit('user-disconnected', socket.userid);
 
-                        // sending duplicate message to same socket?
                         if (listOfUsers[s] && listOfUsers[s].connectedWith[socket.userid]) {
                             delete listOfUsers[s].connectedWith[socket.userid];
                             listOfUsers[s].socket.emit('user-disconnected', socket.userid);
@@ -1003,7 +958,6 @@ function signaling_server (socket, config) {
 
             if (socket.ondisconnect) {
                 try {
-                    // scalable-broadcast.js
                     socket.ondisconnect();
                 }
                 catch(e) {

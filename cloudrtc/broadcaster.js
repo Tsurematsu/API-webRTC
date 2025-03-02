@@ -315,3 +315,4 @@ class User {
     return manager.setupSocket(socket);
   }
   
+export { createBroadcastHandler };
