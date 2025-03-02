@@ -1,22 +1,20 @@
 // Muaz Khan      - www.MuazKhan.com
 // MIT License    - www.WebRTC-Experiment.com/licence
 // Documentation  - github.com/muaz-khan/RTCMultiConnection
-import  pushLogs from './pushLogs.js';
-// const strings
-import CONST_STRINGS from './const_strings.js';
+import {pushLogs, CONST_STRINGS } from './utils.js';
 let listOfUsers = {};
 let listOfRooms = {};
 
 let adminSocket;
-
-// for scalable-broadcast demos
-let ScalableBroadcast;
-
 function isAdminAuthorized(params, config) {
     if (!params || !params.adminUserName || !params.adminPassword) return false;
     return params.adminUserName === config.adminUserName && 
            params.adminPassword === config.adminPassword;
 }
+// for scalable-broadcast demos
+let ScalableBroadcast;
+
+
 function signaling_server (socket, config) {
     config = config || {};
 
